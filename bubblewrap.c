@@ -244,6 +244,7 @@ usage (int ecode, FILE *out)
            "    --gid GID                    Custom gid in the sandbox (requires --unshare-user or --userns)\n"
            "    --hostname NAME              Custom hostname in the sandbox (requires --unshare-uts)\n"
            "    --chdir DIR                  Change directory to DIR\n"
+           "    --clearenv                   Unset all environment variables\n"
            "    --setenv VAR VALUE           Set an environment variable\n"
            "    --unsetenv VAR               Unset an environment variable\n"
            "    --lock-file DEST             Take a lock on DEST while sandbox is running\n"
@@ -277,6 +278,7 @@ usage (int ecode, FILE *out)
            "    --cap-add CAP                Add cap CAP when running as privileged user\n"
            "    --cap-drop CAP               Drop cap CAP when running as privileged user\n"
            "    --perms OCTAL                Set permissions of next argument (--bind-data, --file, etc.)\n"
+           "    --chmod OCTAL PATH           Change permissions of PATH (must already exist)\n"
           );
   exit (ecode);
 }
@@ -866,14 +868,6 @@ get_newroot_path (const char *path)
   return strconcat ("/newroot/", path);
 }
 
-static char *
-get_oldroot_path (const char *path)
-{
-  while (*path == '/')
-    path++;
-  return strconcat ("/oldroot/", path);
-}
-
 static void
 write_uid_gid_map (uid_t sandbox_uid,
                    uid_t parent_uid,
@@ -949,6 +943,8 @@ privileged_op (int         privileged_op_socket,
                const char *arg1,
                const char *arg2)
 {
+  bind_mount_result bind_result;
+
   if (privileged_op_socket != -1)
     {
       uint32_t buffer[2048];  /* 8k, but is int32 to guarantee nice alignment */
@@ -1013,15 +1009,23 @@ privileged_op (int         privileged_op_socket,
       break;
 
     case PRIV_SEP_OP_REMOUNT_RO_NO_RECURSIVE:
-      if (bind_mount (proc_fd, NULL, arg2, BIND_READONLY) != 0)
-        die_with_error ("Can't remount readonly on %s", arg2);
+      bind_result = bind_mount (proc_fd, NULL, arg2, BIND_READONLY);
+
+      if (bind_result != BIND_MOUNT_SUCCESS)
+        die_with_bind_result (bind_result, errno,
+                              "Can't remount readonly on %s", arg2);
+
       break;
 
     case PRIV_SEP_OP_BIND_MOUNT:
       /* We always bind directories recursively, otherwise this would let us
          access files that are otherwise covered on the host */
-      if (bind_mount (proc_fd, arg1, arg2, BIND_RECURSIVE | flags) != 0)
-        die_with_error ("Can't bind mount %s on %s", arg1, arg2);
+      bind_result = bind_mount (proc_fd, arg1, arg2, BIND_RECURSIVE | flags);
+
+      if (bind_result != BIND_MOUNT_SUCCESS)
+        die_with_bind_result (bind_result, errno,
+                              "Can't bind mount %s on %s", arg1, arg2);
+
       break;
 
     case PRIV_SEP_OP_PROC_MOUNT:
@@ -1432,6 +1436,19 @@ resolve_symlinks_in_ops (void)
                 die_with_error("Can't find source path %s", old_source);
             }
           break;
+
+        case SETUP_MOUNT_PROC:
+        case SETUP_MOUNT_DEV:
+        case SETUP_MOUNT_TMPFS:
+        case SETUP_MOUNT_MQUEUE:
+        case SETUP_MAKE_DIR:
+        case SETUP_MAKE_FILE:
+        case SETUP_MAKE_BIND_FILE:
+        case SETUP_MAKE_RO_BIND_FILE:
+        case SETUP_MAKE_SYMLINK:
+        case SETUP_REMOUNT_RO_NO_RECURSIVE:
+        case SETUP_SET_HOSTNAME:
+        case SETUP_CHMOD:
         default:
           break;
         }
@@ -2083,6 +2100,10 @@ parse_args_recurse (int          *argcp,
 
           argv += 1;
           argc -= 1;
+        }
+      else if (strcmp (arg, "--clearenv") == 0)
+        {
+          xclearenv ();
         }
       else if (strcmp (arg, "--setenv") == 0)
         {

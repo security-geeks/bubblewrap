@@ -62,11 +62,11 @@ AC_ARG_WITH([zsh-completion-dir],
 if test "x$with_zsh_completion_dir" = "xyes"; then
         [ZSH_COMPLETION_DIR="$datadir/zsh/site-functions"]
 else
-    ZSH_COMPLETION_DIR="$with_bash_completion_dir"
+    ZSH_COMPLETION_DIR="$with_zsh_completion_dir"
 fi
 
 
-AC_SUBST([ZSH_COMPLETION_DIR])                                                   
+AC_SUBST([ZSH_COMPLETION_DIR])
 AM_CONDITIONAL([ENABLE_ZSH_COMPLETION], [test "x$with_zsh_completion_dir" != "xno"])
 
 # ------------------------------------------------------------------------------
@@ -81,6 +81,9 @@ if test "x$enable_selinux" != "xno"; then
         if test "x$have_selinux" = xno -a "x$enable_selinux" = xyes; then
                 AC_MSG_ERROR([*** SELinux support requested but libraries not found])
         fi
+        PKG_CHECK_MODULES([SELINUX_2_3], [libselinux >= 2.3],
+                [AC_DEFINE(HAVE_SELINUX_2_3, 1, [Define if SELinux is version >= 2.3])],
+                [:])
 fi
 AM_CONDITIONAL(HAVE_SELINUX, [test "$have_selinux" = "yes"])
 
@@ -103,6 +106,8 @@ CC_CHECK_FLAGS_APPEND([WARN_CFLAGS], [CFLAGS], [\
         -Werror=incompatible-pointer-types \
         -Werror=misleading-indentation \
 	-Werror=missing-include-dirs -Werror=aggregate-return \
+        -Werror=switch-default \
+        -Wswitch-enum \
 ])
 AC_SUBST(WARN_CFLAGS)
 
